@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>通帳CSV作成サービス（準備中）</title>
+<meta name="description" content="通帳の画像・PDFからfreee会計用CSVを作成するサービスを準備しています。現在、お申込みと通帳データの受付は行っていません。">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='3' width='24' height='26' rx='3' fill='%231f6f6a'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='%23fff' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+/* 基本の設定（claude.ai のページで自動で付いていたもの） */
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Maru+Gothic:wght@500;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow column; the hero is a passbook page whose ruled rows turn into CSV lines. */
+:root {
+  --paper: #f3f6f5;
+  --page: #ffffff;
+  --ink: #1d2b36;
+  --muted: #5b6b74;
+  --rule: #c9d8d6;
+  --tint: #e4efed;
+  --accent: #1f6f6a;
+  --stamp: #c23b2b;
+  --todo-bg: #fff4d6;
+  --todo-fg: #7a5200;
+  --f-display: "Zen Maru Gothic", "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --f-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-mono: "IBM Plex Mono", "BIZ UDGothic", "Consolas", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #111a1e; --page: #18242a; --ink: #e3ecea; --muted: #9aaeb2; --rule: #2f4249;
+    --tint: #1e3036; --accent: #5cc2b8; --stamp: #f07a68; --todo-bg: #3a2f12; --todo-fg: #f3d07a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #111a1e; --page: #18242a; --ink: #e3ecea; --muted: #9aaeb2; --rule: #2f4249;
+  --tint: #1e3036; --accent: #5cc2b8; --stamp: #f07a68; --todo-bg: #3a2f12; --todo-fg: #f3d07a;
+  color-scheme: dark;
+}
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--f-body); font-size: 16px; line-height: 1.8;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 880px; margin: 0 auto; padding-block: 40px 64px; display: grid; gap: 72px; }
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; line-height: 1.35; margin: 0; }
+h1 { font-size: clamp(28px, 5vw, 42px); }
+h2 { font-size: clamp(22px, 3.4vw, 28px); }
+h3 { font-size: 18px; }
+p { margin: 0; }
+section { display: grid; gap: 20px; }
+.eyebrow { font-size: 13px; letter-spacing: .12em; color: var(--accent); font-weight: 700; }
+.lead { color: var(--muted); max-width: 40em; }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.todo { background: var(--todo-bg); color: var(--todo-fg); padding: 0 .35em; border-radius: 3px; font-size: .92em; }
+a { color: var(--accent); }
+
+/* Hero */
+.hero { display: grid; gap: 28px; }
+.hero-text { display: grid; gap: 16px; }
+.price-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.price-line .big { font-family: var(--f-mono); font-size: clamp(34px, 6vw, 48px); font-weight: 600; color: var(--accent); }
+.stamp {
+  display: inline-block; border: 2px solid var(--stamp); color: var(--stamp);
+  border-radius: 50%; padding: 6px 10px; font-size: 13px; font-weight: 700; transform: rotate(-8deg);
+  line-height: 1.2; text-align: center;
+}
+.cta { display: inline-flex; align-items: center; gap: 8px; background: var(--accent); color: var(--page);
+  padding: 12px 22px; border-radius: 6px; text-decoration: none; font-weight: 700; width: fit-content; }
+.cta:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--stamp); outline-offset: 2px; }
+
+.convert { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 16px; align-items: center; }
+.arrow { font-size: 28px; color: var(--accent); text-align: center; }
+.passbook { background: var(--page); border: 1px solid var(--rule); border-radius: 4px; overflow-x: auto; }
+.passbook table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 330px; }
+.passbook th { background: var(--tint); font-weight: 700; padding: 6px 8px; text-align: left; font-size: 12px; color: var(--muted); }
+.passbook td { padding: 6px 8px; border-top: 1px dashed var(--rule); font-family: var(--f-mono); white-space: nowrap; }
+.passbook td.r { text-align: right; }
+.csv { background: var(--page); border: 1px solid var(--rule); border-radius: 4px; min-width: 0; }
+.csv pre { margin: 0; padding: 12px; font-family: var(--f-mono); font-size: 12.5px; line-height: 1.9; overflow-x: auto; }
+.cap { font-size: 12px; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; gap: 8px; }
+
+/* Price */
+.calc { background: var(--page); border: 1px solid var(--rule); border-radius: 8px; padding: 24px; display: grid; gap: 18px; }
+.calc-row { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+label { font-weight: 700; font-size: 14px; display: grid; gap: 6px; }
+input, textarea {
+  font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 10px 12px; width: 100%; box-sizing: border-box;
+}
+#rows { width: 9em; font-family: var(--f-mono); }
+.result { display: grid; gap: 2px; }
+.result .total { font-family: var(--f-mono); font-size: 32px; font-weight: 600; color: var(--accent); }
+.result .sub { color: var(--muted); font-size: 14px; }
+.tiers { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tiers th, .tiers td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
+.tiers td:last-child, .tiers th:last-child { text-align: right; }
+.tiers-wrap { overflow-x: auto; }
+
+/* Flow */
+.flow { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; counter-reset: step; }
+.flow li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-bottom: 1px dashed var(--rule); }
+.flow li::before {
+  counter-increment: step; content: counter(step);
+  width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--accent); color: var(--accent);
+  display: grid; place-items: center; font-family: var(--f-mono); font-weight: 600;
+}
+.flow p { color: var(--muted); font-size: 15px; }
+
+/* Includes */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+.box { border-top: 3px solid var(--accent); padding-top: 12px; display: grid; gap: 8px; }
+.box.no { border-top-color: var(--muted); }
+.box ul { margin: 0; padding-left: 1.2em; }
+
+/* FAQ */
+details { border-bottom: 1px solid var(--rule); padding: 12px 0; }
+summary { cursor: pointer; font-weight: 700; }
+details p { margin-top: 8px; color: var(--muted); }
+
+/* Form */
+form { display: grid; gap: 16px; background: var(--page); border: 1px solid var(--rule); border-radius: 8px; padding: 24px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+button {
+  font: inherit; font-weight: 700; cursor: pointer; border-radius: 6px; padding: 10px 18px;
+  border: 1px solid var(--accent); background: var(--accent); color: var(--page); width: fit-content;
+}
+button.ghost { background: transparent; color: var(--accent); }
+#order-out { display: grid; gap: 12px; }
+#order-text { font-family: var(--f-mono); font-size: 13px; min-height: 200px; }
+.btns { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+#copy-msg { font-size: 14px; color: var(--accent); }
+.note { font-size: 14px; color: var(--muted); }
+
+/* Legal */
+.law { width: 100%; border-collapse: collapse; font-size: 14px; }
+.law th, .law td { border-bottom: 1px solid var(--rule); padding: 10px; text-align: left; vertical-align: top; }
+.law th { width: 11em; color: var(--muted); font-weight: 700; }
+footer { font-size: 13px; color: var(--muted); display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 20px; }
+
+@media (max-width: 640px) {
+  .convert { grid-template-columns: minmax(0, 1fr); }
+  .arrow { transform: rotate(90deg); }
+  .law th { width: 7em; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero-text">
+      <span class="eyebrow">通帳CSV作成サービス</span>
+      <h1>通帳の明細を、freee会計に取り込めるCSVにします</h1>
+      <p class="lead">通帳の写真やPDFから、freee会計に取り込めるCSVを作成するサービスを準備しています。CSVの列は日付・摘要・入金・出金・残高で、freee会計の「明細のアップロード」で読み込める形式にする予定です。CSVの作成にはAI（ChatGPT）を使う予定です（<a href="#ai">詳しくはこちら</a>）。</p>
+      <div class="box">
+        <p><strong>現在、お申込み、お支払い、通帳の画像・PDFの受付は行っていません。</strong>通帳の画像・PDFや、口座番号などの口座の情報は送らないでください。</p>
+      </div>
+      <div class="price-line">
+        <span class="big">5,500円</span>
+        <span>／ 100件ごと（税込・予定）</span>
+      </div>
+      <a class="cta" href="#contact">一般的なご質問について</a>
+    </div>
+
+    <div class="convert" aria-label="変換の例">
+      <div class="passbook">
+        <div class="cap"><span>通帳（例）</span><span>普通預金</span></div>
+        <table>
+          <thead><tr><th>年月日</th><th>摘要</th><th>お支払金額</th><th>お預り金額</th><th>差引残高</th></tr></thead>
+          <tbody>
+            <tr><td>06-10-01</td><td>カ）ヤマダショウジ</td><td class="r"></td><td class="r">330,000</td><td class="r">1,250,400</td></tr>
+            <tr><td>06-10-05</td><td>デンキ</td><td class="r">12,860</td><td class="r"></td><td class="r">1,237,540</td></tr>
+            <tr><td>06-10-25</td><td>ヤチン</td><td class="r">88,000</td><td class="r"></td><td class="r">1,149,540</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="arrow" aria-hidden="true">→</div>
+      <div class="csv">
+        <div class="cap"><span>納品を予定しているCSV（例）</span><span>3行</span></div>
+<pre>日付,摘要,入金,出金,残高
+2024/10/01,カ）ヤマダショウジ,330000,,1250400
+2024/10/05,デンキ,,12860,1237540
+2024/10/25,ヤチン,,88000,1149540</pre>
+      </div>
+    </div>
+  </header>
+
+  <section id="price">
+    <span class="eyebrow">料金（予定）</span>
+    <h2>100件ごとに5,500円（税込）</h2>
+    <p class="lead">受付を始めるときの予定の料金です。通帳の明細1行（1件の入金または出金）を1件と数えます。100件に満たない分も、100件として計算します。</p>
+
+    <div class="calc">
+      <div class="tiers-wrap">
+        <table class="tiers">
+          <thead><tr><th>件数</th><th>料金（税込）</th></tr></thead>
+          <tbody class="num">
+            <tr><td>1〜100件</td><td>5,500円</td></tr>
+            <tr><td>101〜200件</td><td>11,000円</td></tr>
+            <tr><td>201〜300件</td><td>16,500円</td></tr>
+            <tr><td>301〜400件</td><td>22,000円</td></tr>
+            <tr><td>401件以上</td><td>100件ごとに5,500円</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">現在は、お申込みとお支払いを受け付けていません。</p>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">内容</span>
+    <h2>予定しているサービスの内容</h2>
+    <div class="cols">
+      <div class="box">
+        <h3>含まれるもの</h3>
+        <ul>
+          <li>通帳の明細の入力（日付・摘要・入金・出金・残高）</li>
+          <li>残高の検算（入力ミスの確認）</li>
+          <li>freee会計に取り込めるCSVファイル（UTF-8）の作成</li>
+          <li>読み取れない箇所の一覧</li>
+          <li>当方の入力ミスの無料修正（納品完了の日の翌日から30日以内のご連絡）</li>
+        </ul>
+      </div>
+      <div class="box no">
+        <h3>含まれないもの</h3>
+        <ul>
+          <li>勘定科目の判定や仕訳の作成</li>
+          <li>freee会計への取込み作業</li>
+          <li>税金の計算、申告書の作成、税務の相談</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">よくある質問</span>
+    <h2>質問と答え</h2>
+    <div>
+      <details><summary>どんな資料に対応していますか？</summary><p>通帳の写真（スマートフォンで撮ったもの）、スキャンした画像、PDFに対応する予定です。文字がはっきり写っているものが必要です。現在は、通帳の画像・PDFの受付は行っていません。</p></details>
+      <details><summary>どの銀行の通帳でも大丈夫ですか？</summary><p>紙の通帳であれば、銀行・信用金庫・ゆうちょ銀行などを問わず、対応する予定です。</p></details>
+      <details><summary>摘要の文字はどう入力されますか？</summary><p>通帳に印字されたとおり（カタカナなど）に作成する予定です。読み取れない箇所は、一覧でお知らせする予定です。</p></details>
+    </div>
+  </section>
+
+  <section id="ai">
+    <span class="eyebrow">AIの利用</span>
+    <h2>ChatGPT の利用と、外国（米国）への送信について（予定）</h2>
+    <p>受付を始めたあとは、CSVの作成に、OpenAI OpCo, LLC（アメリカ合衆国）が提供する ChatGPT Plus の「一時チャット」を使う予定です。お送りいただく通帳の画像・PDFには、口座の名義、口座番号、取引の日付、摘要（取引の相手方の名称を含みます）、金額、残高などが写っています。これを ChatGPT に送信し、OpenAI のサーバーで処理します。処理は、アメリカ合衆国など日本の外で行われることがあります。</p>
+    <p>OpenAI の説明では、一時チャットの内容は、OpenAI のモデルの改善に使われないとされています。また、安全のために最大30日保存されることがあり、安全上または法的な理由で保持する必要がある場合を除き、30日以内に自動的に削除されるとされています。例外の場合の保存期間は、OpenAI の説明では示されていません。この部分は当方では削除できません。</p>
+  </section>
+
+  <section id="contact">
+    <span class="eyebrow">お問い合わせ</span>
+    <h2>一般的なご質問の受付</h2>
+    <p class="lead">サービスについての一般的なご質問は、segi3014@gmail.com へメールでお送りください。このメールアドレスは、一般的なご質問専用です。</p>
+    <ul class="note">
+      <li>現在、お申込み、お支払い、通帳の画像・PDFの受付は行っていません。</li>
+      <li>メールに、通帳の画像・PDFを添付したり、口座番号などの口座の情報を書いたりしないでください。</li>
+      <li>いただいたメールの情報（お名前、メールアドレス、ご質問の内容）は、ご質問への回答のためにだけ使います。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>このサービスは、個人が準備している、通帳画像からfreee会計用CSVを作成して納品するサービスです（現在、受付は行っていません）。freee株式会社とは関係がなく、freee株式会社が提供・承認するものではありません。「freee」はfreee株式会社の商標です。また、OpenAI とも関係がなく、OpenAI が提供・承認するサービスではありません。</p>
+    <p>税務の判断や申告の代理は行いません。税務のご相談は税理士にお問い合わせください。</p>
+
+  </footer>
+</div>
+
+</body>
+</html>
